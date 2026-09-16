@@ -1,0 +1,9 @@
+{
+  "builds": [
+    { "src": "index.html", "use": "@vercel/static" },
+    { "src": "style.css", "use": "@vercel/static" },
+    { "src": "assets/**", "use": "@vercel/static" },
+    { "src": "src/**", "use": "@vercel/static" },
+    { "src": "vendor/**", "use": "@vercel/static" }
+  ]
+}

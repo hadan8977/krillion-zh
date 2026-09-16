@@ -1,4 +1,4 @@
-import { Converter } from "../node_modules/opencc-js/dist/esm/t2cn.js";
+import { Converter } from "../vendor/opencc-js/t2cn.js";
 import { QUESTIONS, BANK_VERSION, PACKS } from "./questions.js";
 
 export const ROUND_MS = 25_000;

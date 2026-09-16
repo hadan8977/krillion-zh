@@ -14,7 +14,7 @@ createServer(async (request, response) => {
   if (name === "/") name = "/index.html";
   const target = path.resolve(root, `.${name}`);
   const relative = path.relative(root, target).replaceAll("\\", "/");
-  const allowed = ["index.html", "style.css"].includes(relative) || /^(assets|src|node_modules\/opencc-js\/dist\/esm)\//.test(relative);
+  const allowed = ["index.html", "style.css"].includes(relative) || /^(assets|src|vendor|node_modules\/opencc-js\/dist\/esm)\//.test(relative);
   if (!allowed || relative.startsWith("..") || !types[path.extname(target)]) { response.writeHead(404).end(); return; }
   try {
     const data = await readFile(target);
