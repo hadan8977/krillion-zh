@@ -4,9 +4,9 @@ import { QUESTIONS, PACKS } from "../src/questions.js";
 import { ROUND_MS, TIERS, normalize, judge, suggest, selectQuestions, localDate, newDive, beginRound, submitAnswer, restoreDive, totalScore, shareText } from "../src/game.js";
 
 const q = (id) => QUESTIONS.find((question) => question.id === id);
-test("everyday answer sets have unambiguous aliases and one designated gem", () => {
-  assert.equal(QUESTIONS.length, 48);
-  assert.equal(q("pocket-items"), undefined);
+test("sixty everyday categories have unambiguous aliases and one designated gem", () => {
+  assert.equal(QUESTIONS.length, 60);
+  for (const retired of ["pocket-items", "unplugged-toys", "crunchy-foods", "gifts", "bedside", "hangable-things", "waiting-activities"]) assert.equal(q(retired), undefined);
   assert.equal(new Set(QUESTIONS.map((question) => question.id)).size, QUESTIONS.length);
   assert.equal(new Set(QUESTIONS.map((question) => question.prompt)).size, QUESTIONS.length);
   for (const question of QUESTIONS) {
@@ -26,20 +26,26 @@ test("everyday answer sets have unambiguous aliases and one designated gem", () 
   }
 });
 
-test("Chinese scripts, compatibility forms, and everyday aliases share the same score", () => {
+test("Chinese scripts, compatibility forms, regional names, and merged aliases share scores", () => {
   for (const [id, label, aliases] of [
-    ["bathroom-items", "吹风机", ["吹風機", "电吹风"]],
+    ["home-appliances", "吹风机", ["吹風機", "电吹风"]],
     ["kitchen-tools", "压泥器", ["馬鈴薯壓泥器", "土豆压泥器"]],
-    ["schoolbag", "U盘", ["Ｕ盤", "优盘", " usb 闪存盘 "]],
-    ["noodle-dishes", "番茄鸡蛋面", ["西紅柿雞蛋面", "番茄蛋面"]],
-    ["schoolbag", "橡皮", ["橡皮擦", " “橡皮” "]],
-    ["sour-foods", "猕猴桃", ["獼猴桃", "奇异果"]],
-    ["cleaning-tools", "扫把", ["扫帚", "掃帚"]],
+    ["stationery", "U盘", ["Ｕ盤", "优盘", " usb 闪存盘"]],
+    ["noodle-dishes", "番茄鸡蛋面", ["西紅柿雞蛋麵", "番茄蛋面"]],
+    ["stationery", "橡皮", ["橡皮擦", " “橡皮” "]],
+    ["fruits", "猕猴桃", ["獼猴桃", "奇異果"]],
+    ["cleaning-tools", "扫把", ["扫帚", "笤帚"]],
     ["wheeled-transport", "自行车", ["腳踏車", "单车"]],
-    ["unplugged-toys", "溜溜球", ["悠悠球"]],
-    ["bread-spreads", "咖椰酱", ["咖央醬", "加椰酱", "ＫＡＹＡ"]],
-    ["waiting-activities", "刷视频", ["刷短视频", "看視頻", "刷抖音"]],
-    ["winter-warmth", "暖宝宝", ["暖貼", "发热贴"]],
+    ["instruments", "键盘口琴", ["口風琴"]],
+    ["sauces", "咖椰酱", ["咖央醬", "加椰酱", "ＫＡＹＡ"]],
+    ["dog-breeds", "贵宾犬", ["贵宾", "泰迪"]],
+    ["porridges", "及第粥", ["状元及第粥", "状元粥"]],
+    ["card-games", "锄大地", ["鋤大Ｄ", "大老二"]],
+    ["nuts-seeds", "碧根果", ["长寿果", "美洲山核桃"]],
+    ["edible-mushrooms", "香菇", ["冬菇"]],
+    ["card-games", "升级", ["拖拉机", "双升", "八十分"]],
+    ["grains", "小米", ["谷子", "粟"]],
+    ["spices", "桂皮", ["肉桂", "肉桂粉"]],
   ]) {
     const expected = judge(q(id), label);
     assert.equal(expected?.answer, label, `${id}: ${label}`);
@@ -47,69 +53,96 @@ test("Chinese scripts, compatibility forms, and everyday aliases share the same 
   }
 });
 
-test("each everyday prompt accepts familiar and unexpected examples within its stated scope", () => {
+test("every category accepts everyday examples and rejects nearby out-of-scope answers", () => {
   const examples = [
-    ["drink-from", ["杯子", "碗", "奶瓶", "椰子壳"], "漏勺"],
-    ["breakfast", ["鸡蛋", "云吞", "糍粑"], "洗洁精"],
-    ["noodle-dishes", ["牛肉面", "螺蛳粉", "锅盖面"], "米饭"],
-    ["sour-foods", ["柠檬", "酸味糖果", "罗望子"], "小苏打"],
-    ["seasonings", ["盐", "番茄酱", "南乳"], "洗衣粉"],
-    ["hot-drinks", ["水", "热巧克力", "姜汁可乐"], "排骨汤"],
-    ["kitchen-tools", ["筷子", "餐叉", "压蒜器", "樱桃去核器"], "冰箱"],
-    ["bathroom-items", ["牙刷", "冲牙器", "挤牙膏器"], "红绿灯"],
-    ["cleaning-tools", ["拖把", "旧牙刷", "除尘胶"], "望远镜"],
-    ["handles", ["门", "马克杯", "皮搋子"], "硬币"],
-    ["plug-in", ["手机", "电动牙刷", "电烙铁"], "普通铅笔"],
-    ["bedside", ["手机", "眼镜盒", "枕头喷雾"], "消防车"],
-    ["unplugged-toys", ["积木", "悠悠球", "剑玉"], "电子游戏机"],
-    ["zippers", ["裤子", "枕套", "琴包"], "玻璃杯"],
-    ["rain-gear", ["雨伞", "背包雨罩", "防水袜"], "菜刀"],
-    ["schoolbag", ["课本", "口风琴", "姓名贴"], "洗衣机"],
-    ["headwear", ["帽子", "头灯", "防蚊头网"], "袜子"],
-    ["wallet-items", ["钞票", "创可贴", "吉他拨片"], "台灯"],
-    ["wheeled-transport", ["自行车", "轮椅", "行李牵引车"], "帆船"],
-    ["park-things", ["树", "跷跷板", "昆虫旅馆"], "火星探测器"],
-    ["picnic-items", ["三明治", "垃圾袋", "桌布夹"], "信号灯"],
-    ["street-fixtures", ["路灯", "自行车架", "盲人过街提示器"], "羽绒服"],
-    ["sports-no-ball", ["跑步", "跳绳", "抖空竹"], "足球"],
-    ["beach-things", ["贝壳", "海玻璃", "沙钱"], "洗碗机"],
-    ["potato-foods", ["炸薯条", "马铃薯泥", "洋芋搅团"], "南瓜饼"],
-    ["round-foods", ["鸡蛋", "汤圆", "蛋挞", "糯米糍"], "面条"],
-    ["cold-treats", ["冰激凌", "冰酸奶", "冻梨"], "热豆浆"],
-    ["crunchy-foods", ["薯片", "荸荠", "炸米纸"], "豆腐脑"],
-    ["filled-foods", ["饺子", "云吞", "炸藕盒"], "清水面条"],
-    ["bread-spreads", ["黄油", "番茄酱", "咖央酱"], "洗手液"],
-    ["home-lights", ["台灯", "手机", "缝纫机灯"], "普通镜子"],
-    ["foldable-things", ["纸张", "折叠键盘", "乐谱架"], "石头"],
-    ["beeping-things", ["微波炉", "烟雾报警器", "电煮蛋器"], "普通铅笔"],
-    ["hangable-things", ["衣服", "花盆", "晴天娃娃"], "水"],
-    ["soft-things", ["枕头", "捏捏乐", "记忆棉"], "砖头"],
-    ["lidded-things", ["锅", "口红", "砚台"], "筷子"],
-    ["gifts", ["鲜花", "电影票", "星空灯"], "垃圾"],
-    ["winter-warmth", ["围巾", "暖宝宝", "暖脚袋"], "冰块"],
-    ["paired-things", ["筷子", "耳塞", "蛙鞋"], "剪刀"],
-    ["clothing-patterns", ["条纹", "格纹", "千鸟格", "回形针"], "蓝色"],
-    ["waiting-activities", ["玩手机", "听音乐", "刷朋友圈", "系鞋带", "画速写"], "洗衣机"],
-    ["cooling-things", ["风扇", "蒲扇", "冰滚轮"], "电热毯"],
-    ["flying-things", ["飞机", "蝙蝠", "枫树翅果"], "鸵鸟"],
-    ["group-games", ["斗地主", "躲猫猫", "UNO", "绘画接龙"], "单人纸牌"],
-    ["amusement-park", ["云霄飞车", "摩天轮", "身高尺"], "洗碗机"],
-    ["water-animals", ["鱼", "企鹅", "水獭", "水黾"], "仙人掌"],
-    ["neighborhood-shops", ["便利店", "配钥匙店", "修拉链店"], "红绿灯"],
-    ["wind-moved", ["旗帜", "柳絮", "风向袋", "风动招牌"], "地基"],
+    ["drink-from", ["玻璃杯", "马克杯", "保温壶", "军用水壶"], ["试管", "椰子壳"]],
+    ["porridges", ["白粥", "皮蛋瘦肉粥", "鸭肉粥"], ["小米", "排骨汤"]],
+    ["noodle-dishes", ["牛肉面", "螺蛳粉", "干炒牛河", "锅盖面"], ["炒饭", "炒"]],
+    ["fruits", ["苹果", "车厘子", "指橙"], ["苹果汁", "开心果"]],
+    ["spices", ["生姜", "香叶", "葫芦巴"], ["盐", "辣椒酱"]],
+    ["teas", ["铁观音", "菊花茶", "荞麦茶"], ["拿铁", "珍珠奶茶"]],
+    ["kitchen-tools", ["菜刀", "压蒜器", "樱桃去核器"], ["冰箱", "饭碗"]],
+    ["bathroom-items", ["牙刷", "冲牙器", "皂网"], ["马桶", "洁厕灵"]],
+    ["cleaning-tools", ["拖把", "白醋", "除尘胶"], ["手帕", "床单"]],
+    ["hand-tools", ["螺丝刀", "内六角扳手", "截链器"], ["电钻", "螺丝"]],
+    ["home-appliances", ["电饭煲", "电动牙刷", "咖啡机"], ["手机", "插头"]],
+    ["bedding", ["枕头", "被套", "床褥防螨套"], ["床头柜", "手机"]],
+    ["instruments", ["钢琴", "木琴", "特雷门琴"], ["音响", "小星星"]],
+    ["bags", ["书包", "托特包", "车把包"], ["纸盒", "钥匙"]],
+    ["rain-gear", ["雨伞", "背包雨罩", "自行车坐垫雨套"], ["纸巾", "手机"]],
+    ["stationery", ["钢笔", "橡皮擦", "U盘", "橡皮屑清理器"], ["课本", "打印机"]],
+    ["hats", ["棒球帽", "摩托车头盔", "猎鹿帽"], ["发夹", "头灯"]],
+    ["jewelry", ["戒指", "鲨鱼夹", "臂钏"], ["红宝石", "帽子"]],
+    ["wheeled-transport", ["自行车", "轮椅", "轨道自行车"], ["帆船", "飞机"]],
+    ["trees", ["柳树", "柿子树", "鹅掌楸"], ["竹子", "旅人蕉"]],
+    ["camping-gear", ["帐篷", "储水袋", "吊床底被"], ["三明治", "身份证"]],
+    ["street-fixtures", ["路灯", "盲人过街提示器", "管线标志桩"], ["公交车", "便利店"]],
+    ["sports-no-ball", ["跑步", "跳绳", "蹼泳"], ["足球", "篮球"]],
+    ["marine-animals", ["鲨鱼", "儒艮", "羽毛星"], ["金鱼", "海带"]],
+    ["potato-foods", ["炸薯条", "醋溜土豆丝", "风琴土豆"], ["炸红薯", "芋泥"]],
+    ["beans", ["豆浆", "胡豆", "鸡豆凉粉"], ["咖啡豆", "可可豆"]],
+    ["candies", ["水果糖", "牛轧糖", "寸金糖"], ["饼干", "雪糕"]],
+    ["nuts-seeds", ["花生", "南瓜子", "菠萝蜜核"], ["黄豆", "爆米花"]],
+    ["breads", ["吐司", "盐可颂", "凯撒面包"], ["奶油蛋糕", "馒头"]],
+    ["sauces", ["番茄酱", "咖央酱", "奇米丘里酱"], ["盐", "橄榄油"]],
+    ["lamps", ["台灯", "阅读灯", "戴维灯"], ["手机", "萤火虫"]],
+    ["furniture", ["餐桌", "折叠椅", "衣帽间中岛柜"], ["电视", "床单"]],
+    ["measuring-tools", ["卷尺", "万用表", "轮廓规"], ["手机", "公斤"]],
+    ["sewing-supplies", ["缝衣针", "拆线器", "织补蘑菇"], ["衬衫", "棉布"]],
+    ["textiles", ["棉布", "莱赛尔", "夏布"], ["皮革", "海绵"]],
+    ["cookware", ["炒锅", "高压锅", "云南汽锅"], ["电饭煲", "锅盖"]],
+    ["shoes", ["运动鞋", "乐福鞋", "分趾鞋"], ["袜子", "鞋带"]],
+    ["outerwear", ["羽绒服", "皮夹克", "牛角扣大衣"], ["内衣", "围巾"]],
+    ["ball-sports", ["乒乓球", "轮椅篮球", "合球"], ["围棋", "跳绳"]],
+    ["card-games", ["斗地主", "空当接龙", "克里比奇"], ["麻将", "UNO"]],
+    ["dances", ["芭蕾", "探戈", "曳步舞"], ["转圈", "小苹果"]],
+    ["office-equipment", ["复印机", "高拍仪", "自动折页机"], ["办公桌", "打印纸"]],
+    ["flying-birds", ["麻雀", "孔雀", "旋木雀"], ["企鹅", "蝙蝠"]],
+    ["board-games", ["围棋", "斗兽棋", "海战棋"], ["斗地主", "麻将"]],
+    ["amusement-rides", ["云霄飞车", "激流勇进", "旋转观景塔"], ["爆米花", "身高尺"]],
+    ["freshwater-fish", ["鲫鱼", "锦鲤", "射水鱼"], ["蓝鲸", "皮皮虾"]],
+    ["neighborhood-shops", ["便利店", "配钥匙店", "修伞店"], ["学校", "苹果"]],
+    ["weather", ["下雨", "雾凇", "绿色闪光"], ["地震", "流星"]],
+    ["vegetables", ["西红柿", "空心菜", "抱子甘蓝"], ["木耳", "豆腐"]],
+    ["edible-mushrooms", ["香菇", "白玉菇", "绣球菌"], ["毒蝇伞", "白菜"]],
+    ["grains", ["玉米", "藜麦", "福尼奥米"], ["花生", "土豆"]],
+    ["cooking-oils", ["花生油", "黄油", "鹅油"], ["汽油", "薰衣草精油"]],
+    ["coffee-drinks", ["美式", "白咖啡", "马扎格兰"], ["阿拉比卡", "咖啡蛋糕"]],
+    ["bicycle-parts", ["车把", "脚踏", "链条张紧器"], ["头盔", "山地车"]],
+    ["dog-breeds", ["金毛", "泰迪", "巴仙吉犬"], ["小白狗", "警犬"]],
+    ["flowers", ["玫瑰", "太阳花", "鹤望兰"], ["小麦", "松树"]],
+    ["tableware", ["筷子", "汤匙", "芦笋夹"], ["电饭锅", "洗碗机"]],
+    ["camera-gear", ["镜头", "偏振镜", "星野赤道仪"], ["手机", "逆光"]],
+    ["drawing-supplies", ["铅笔", "油画颜料", "纸擦笔"], ["水彩画", "蒙娜丽莎"]],
+    ["cakes", ["巧克力蛋糕", "棋格蛋糕", "年轮蛋糕"], ["菠萝包", "月饼"]],
   ];
-  assert.deepEqual(examples.map(([id]) => id).sort(), QUESTIONS.map(({id}) => id).sort());
+  assert.deepEqual(examples.map(([id]) => id).sort(), QUESTIONS.map(({ id }) => id).sort());
   for (const [id, accepted, rejected] of examples) {
     for (const value of accepted) assert.ok(judge(q(id), value), `${id}: missing ${value}`);
-    assert.equal(judge(q(id), rejected), null, `${id}: out of scope ${rejected}`);
+    for (const value of rejected) assert.equal(judge(q(id), value), null, `${id}: out of scope ${value}`);
+  }
+});
+
+test("similar names with different identities are not merged", () => {
+  for (const [id, first, second] of [
+    ["noodle-dishes", "炒河粉", "干炒牛河"],
+    ["flowers", "向日葵", "太阳花"],
+    ["marine-animals", "儒艮", "海牛"],
+    ["nuts-seeds", "杏仁", "巴旦木"],
+    ["cakes", "纸杯蛋糕", "玛芬"],
+    ["bicycle-parts", "刹车皮", "来令片"],
+  ]) {
+    const a = judge(q(id), first), b = judge(q(id), second);
+    assert.ok(a && b, id);
+    assert.notEqual(a.answer, b.answer, id);
   }
 });
 
 test("guesses must be complete single answers; a typo is never automatically awarded points", () => {
-  for (const value of ["", " ", "手机钥匙", "手机、钥匙", "手机/钥匙", "我选手机", "<script>手机</script>"]) assert.equal(judge(q("schoolbag"), value), null);
+  for (const value of ["", " ", "钢笔橡皮", "钢笔、橡皮", "钢笔/橡皮", "我选钢笔", "<script>钢笔</script>"]) assert.equal(judge(q("stationery"), value), null);
   assert.equal(judge(q("bathroom-items"), "挤牙膏机"), null);
   assert.equal(suggest(q("bathroom-items"), "挤牙膏机"), "挤牙膏器");
-  assert.equal(suggest(q("schoolbag"), "手几"), null);
+  assert.equal(suggest(q("stationery"), "手几"), null);
 });
 
 test("daily dates use Beijing midnight, independently of the host timezone", () => {
@@ -127,6 +160,16 @@ test("daily selection is stable, varied, and each pack has seven distinct questi
     if (pack !== "all") assert.ok(chosen.every((a) => PACKS[pack].categories.includes(a.category)));
   }
   assert.equal(new Set(selectQuestions("2026-09-15").map((a) => a.category)).size, 4);
+});
+
+test("fresh free-play seeds produce distinct rounds while a replayed seed stays stable", () => {
+  const date = "2026-09-16";
+  for (const pack of Object.keys(PACKS)) {
+    const rounds = Array.from({ length: 20 }, (_, i) => newDive("unlimited", date, `session-${i}`, pack).ids);
+    assert.equal(new Set(rounds.map((ids) => ids.join(","))).size, rounds.length);
+    assert.deepEqual(newDive("unlimited", date, "session-0", pack).ids, rounds[0]);
+    for (const ids of rounds) assert.equal(new Set(ids).size, 7);
+  }
 });
 
 test("an invalid guess preserves the original deadline and permits another attempt", () => {

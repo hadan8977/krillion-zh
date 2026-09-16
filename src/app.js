@@ -73,8 +73,8 @@ function home() {
   $("hero").hidden = $("intro").hidden = false;
   const today = localDate();
   const saved = restoreDive(read(`daily:${today}`));
-  $("begin").textContent = saved?.phase === "done" ? "▼ 查 看 今 日 潜 航 ▼" : saved ? "▼ 继 续 今 日 下 潜 ▼" : "▼ 开 始 下 潜 ▼";
-  $("daily-date").textContent = `${today} · 每日一潜`;
+  $("begin").textContent = saved?.phase === "done" ? "▼ 查 看 今 日 潜 航 ▼" : saved ? "▼ 继 续 每 日 挑 战 ▼" : "▼ 每 日 挑 战 ▼";
+  $("daily-date").textContent = `${today} · 今日固定 7 题`;
   ocean.set("home", 0);
 }
 
@@ -202,7 +202,7 @@ function openModal(title, html) {
 function closeModal() { $("dialog").close(); }
 function menu() {
   openModal("选择你的海域", `<nav class="nav-list" aria-label="游戏菜单">
-    <button data-action="home"><span>↓</span>每日下潜</button><button data-action="unlimited"><span>∞</span>自由下潜</button>
+    <button data-action="home"><span>↓</span>每日挑战 · 今日固定</button><button data-action="unlimited"><span>∞</span>自由下潜 · 每局随机</button>
     <button data-action="archive"><span>⟲</span>往日海域</button><button data-action="packs"><span>▦</span>主题海域</button>
     <button data-action="stats"><span>♙</span>我的潜航</button><button data-action="settings"><span>⚙</span>设置</button>
     <button data-action="quality"><span>◇</span>中文题库</button><button data-action="help"><span>?</span>常见问题</button></nav>
@@ -222,16 +222,16 @@ function showTiers() {
 }
 function answerDetails(q) {
   const reference = q.source ? `<p><a href="${escape(q.source.url)}" target="_blank" rel="noopener noreferrer">品类参考：${escape(q.source.title)} ↗</a></p>` : "";
-  return `<p class="scope">${escape(q.scope)}</p><p>已收录 ${q.answers.length} 个答案 · 别名计作同一个答案</p><div class="answer-chips">${[...q.answers].sort((a, b) => TIERS[b.tier].score - TIERS[a.tier].score).map((a) => `<span style="--color:${TIERS[a.tier].color}" title="${escape(a.aliases.length ? `也接受：${a.aliases.join("、")}` : "常用名称")}">${a.label} · ${TIERS[a.tier].score}</span>`).join("")}</div>${reference}<p>这是一道日常开放题，答案按生活场景整理，可能有合理答案尚未收录。参考资料用于说明物品或品类，不是完整答案名单。分值为初始策划分级。</p><details><summary>支持的别名与常用叫法</summary><p>${q.answers.filter((a) => a.aliases.length).map((a) => `${escape(a.label)}：${escape(a.aliases.join("、"))}`).join("<br>") || "本题使用常用名称即可。"}</p></details>`;
+  return `<p class="scope">${escape(q.scope)}</p><p>已收录 ${q.answers.length} 个答案 · 别名计作同一个答案</p><div class="answer-chips">${[...q.answers].sort((a, b) => TIERS[b.tier].score - TIERS[a.tier].score).map((a) => `<span style="--color:${TIERS[a.tier].color}" title="${escape(a.aliases.length ? `也接受：${a.aliases.join("、")}` : "常用名称")}">${a.label} · ${TIERS[a.tier].score}</span>`).join("")}</div>${reference}<p>答案按上面的品类范围收录，仍可能遗漏合理答案。参考资料用于说明品类，不是完整答案名单。分值为初始策划分级。</p><details><summary>支持的别名与常用叫法</summary><p>${q.answers.filter((a) => a.aliases.length).map((a) => `${escape(a.label)}：${escape(a.aliases.join("、"))}`).join("<br>") || "本题使用常用名称即可。"}</p></details>`;
 }
 function showQuality() {
   const total = QUESTIONS.reduce((n, q) => n + q.answers.length, 0);
-  openModal("认真对待每一个答案", `<p>这片海域有 <b>${QUESTIONS.length} 道日常开放题、${total} 个答案条目（按题计）</b>，围绕吃喝、居家、日常小事与户外生活。每道题都能从熟悉的东西想起，再找一个意料之外、又合情合理的答案。</p>
-    <h3>判对与稀有度，分开处理</h3><p>答案按题目场景整理，可能有合理答案尚未收录。繁简体、全半角以及列明的别名会归到同一答案；疑似错字仅提示，由你修改后重新提交。</p>
+  openModal("认真对待每一个答案", `<p>这片海域有 <b>${QUESTIONS.length} 道日常分类题、${total} 个答案条目（按题计）</b>，围绕吃喝、居家、日常爱好与户外生活。每道题都从熟悉的品类出发，并说明收录范围。</p>
+    <h3>判对与稀有度，分开处理</h3><p>答案按明确品类整理，仍可能遗漏合理答案。繁简体、全半角以及列明的别名会归到同一答案；疑似错字仅提示，由你修改后重新提交。</p>
     <p>稀有度目前由策划分级，没有使用虚构的答题人数、百分位或热度数据。“万里挑一”也兼顾答案趣味性。</p>
     <h3>发现漏收或不同意见</h3><p>可导出勘误条目交给题库维护者；条目只保存在本机，不会自动联网发送。</p>
     <form id="correction-form"><label for="correction-text">题目、你的答案和参考出处</label><textarea class="share-copy" id="correction-text" maxlength="1500" required placeholder="例如：某题中的某个别名未被接受；出处是……"></textarea><button class="button-quiet" type="submit">保存勘误条目</button> <button class="text-button" type="button" data-action="export-corrections">导出勘误</button></form>
-    <h3>已收录答案与常用叫法</h3>${QUESTIONS.map((q) => `<details class="library-entry"><summary>${escape(q.prompt)} <small>(${q.answers.length})</small></summary>${answerDetails(q)}</details>`).join("")}`);
+    <h3>已收录答案与常用叫法</h3>${QUESTIONS.map((q, i) => `<details class="library-entry"><summary>${i + 1}. ${escape(q.prompt)} <small>(${q.answers.length})</small></summary>${answerDetails(q)}</details>`).join("")}`);
   $("correction-form").onsubmit = (event) => {
     event.preventDefault();
     const text = $("correction-text").value.trim();

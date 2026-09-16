@@ -29,9 +29,12 @@ No build step is needed.
 
 - Seven questions, 25 seconds per question, one accepted answer per round.
 - Original score tiers: 10 / 15 / 30 / 60 / 85 / 100; ten metres per point.
-- Daily selection changes at midnight in Asia/Shanghai. Completed daily dives
-  remain viewable. Refreshing or hiding the tab does not reset an active timer.
-- Free play, two themed pools, the previous 14 daily sets, local history,
+- Daily selection stays fixed for the same date and bank version, and changes at
+  midnight in Asia/Shanghai. Completed daily dives remain viewable. Refreshing
+  or hiding the tab does not reset an active timer.
+- Free play and both themed pools use a fresh random seed on each new dive.
+  Questions are unique within a dive; some may recur across separate dives.
+- The previous 14 daily sets, local history,
   spoiler-free text sharing, settings, and two mascot colours.
 - Pixel ocean backgrounds, camera descent, sea life, particles, CRT scanlines,
   depth ruler, score effects, and synthesized Web Audio cues.
@@ -46,17 +49,28 @@ tamper-resistant competition system.
 
 ## Chinese answer quality
 
-The bank in `src/questions.js` contains **48 everyday prompts, 2,660 answer
-entries, and 1,542 explicit aliases** (counted per prompt). Topics cover food and
-drinks, home, daily activities, and outdoor life. Examples ask for a drinking
-container, a toy that works without electricity, or something to do while waiting
-for a friend. The themed pools are “家里的小事” (food and home) and “出门走走”
-(daily life and outdoors). The pocket-sized-items prompt has been replaced.
+The bank in `src/questions.js` contains **60 everyday categories, 3,825 answer
+entries, and 1,431 explicit aliases** (counted per prompt). Topics cover food and
+drinks, home, everyday interests, and outdoor life. Questions 13, 28, and 37 now
+ask for instruments, nuts or edible seeds, and shoe types. Subjective attributes
+such as crunchy, soft, or round, and scenarios such as bedside objects, gifts,
+or waiting activities have been replaced with named categories and explicit
+inclusion rules. The themed pools are “家里的小事” (food and home) and
+“出门走走” (daily life and outdoors).
 
-These are open-ended prompts with curated accepted answers, not exhaustive lists.
-Each prompt states its scope before submission. The answer browser shows recorded
-answers and aliases. Optional catalogue and recipe links illustrate some category
-members; they do not verify the whole list or establish rarity.
+These categories have curated accepted answers, not exhaustive lists. Narrow
+categories have fewer entries; no minimum count is imposed by adding dubious
+examples. Each prompt states its scope before submission. The answer browser
+numbers all 60 questions and shows their answers and aliases. Optional catalogue
+and educational links illustrate some category members; they do not verify the
+whole list or establish rarity.
+
+The content review checks all 60 scopes, removes out-of-scope examples, merges
+synonyms, and keeps distinct objects separate. For example, sunflower and
+Portulaca grandiflora are separate answers, while regional mushroom names and
+alternative names for the same card game resolve to one score. Tests exercise
+accepted examples and nearby exclusions for every category, all declared aliases,
+and fresh-seed versus daily selection behavior.
 
 `src/game.js` is the only implementation of normalization and adjudication:
 
