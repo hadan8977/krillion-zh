@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050a14">
+  <meta name="description" content="每天七道题，每题二十五秒。越少见的正确答案，带你潜入越深的海。">
+  <title>万里挑一 · 每日下潜</title>
+  <link rel="icon" href="./assets/krillion.png">
+  <link rel="preload" href="./assets/fusion-pixel.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main id="game" data-phase="home">
+    <canvas id="ocean" aria-hidden="true"></canvas>
+    <div class="vignette" aria-hidden="true"></div>
+    <div class="scanlines" aria-hidden="true"></div>
+    <button class="icon-button menu-trigger" id="menu-button" aria-label="打开菜单" title="菜单">☰</button>
+    <div class="tools">
+      <button class="icon-button" id="sound-button" aria-label="关闭音效" title="音效" aria-pressed="true">◖♪</button>
+      <button class="icon-button" id="settings-button" aria-label="打开设置" title="设置">⚙</button>
+      <button class="icon-button" id="wardrobe-button" aria-label="潜水伙伴" title="潜水伙伴">♙</button>
+    </div>
+    <header class="hud" id="hud" hidden>
+      <div class="pod"><span>深度</span><strong id="depth">0<small>米</small></strong></div>
+      <div class="round-progress"><div class="dots" id="dots"></div><span id="round-count">第 1 / 7 题</span></div>
+      <div class="pod score"><span>得分</span><strong id="score">0</strong></div>
+    </header>
+    <section class="hero" id="hero" aria-labelledby="game-title">
+      <span class="edition">KRILLION · 中文版</span>
+      <h1 id="game-title" data-text="万里挑一">万里挑一</h1>
+      <p class="subtitle">每 日 下 潜</p>
+      <p class="tagline">7 道题 · 每题 25 秒 · 越冷门，潜得越深</p>
+    </section>
+    <section class="intro" id="intro">
+      <div class="intro-inner">
+        <details class="howto"><summary>玩法说明</summary><ul>
+          <li>每天七道题，所有人面对相同的海域。</li>
+          <li>每题 25 秒，说出一个符合要求的答案。</li>
+          <li>越冷门，分数越高；每一分下潜 10 米。</li>
+          <li>每日一次，满分 700 分，海沟深处 7000 米。</li>
+          <li>未收录的答案可重试；下一题由你准备好后开始。</li>
+        </ul><button class="text-button" data-action="tiers">看看稀有度等级 →</button></details>
+        <button class="begin-button" id="begin">▼ 开 始 下 潜 ▼</button>
+        <div class="intro-meta"><span id="daily-date"></span><nav aria-label="其他玩法">
+          <button data-action="archive">往日海域 ⟲</button><button data-action="packs">主题海域</button><button data-action="unlimited">自由下潜 ∞</button>
+        </nav></div>
+      </div>
+    </section>
+    <section class="question pixel-panel" id="question" hidden aria-labelledby="prompt-text">
+      <div class="eyebrow" id="prompt-number"></div><h2 id="prompt-text"></h2>
+      <p class="scope" id="prompt-scope"></p><p class="question-hint">▼ 想一个更少人想到的答案 ▼</p>
+    </section>
+    <div class="status-message" id="answer-status" role="status" aria-live="polite" hidden></div>
+    <form class="dock" id="answer-form" hidden autocomplete="off">
+      <div class="dock-inner"><div class="sonar" aria-label="剩余时间"><div class="sweep"></div><span id="seconds">25</span></div>
+        <div class="input-wrap"><label class="sr-only" for="answer">你的答案</label><input id="answer" type="text" maxlength="80" placeholder="输入一个答案…" spellcheck="false" enterkeyhint="send"><div class="fuse"><div id="fuse-fill"></div></div></div>
+        <button class="dive-button" type="submit">下潜</button>
+      </div>
+    </form>
+    <section class="feedback pixel-panel" id="feedback" hidden aria-live="polite"></section>
+    <div class="next-dock" id="next-dock" hidden><button class="begin-button" id="next">继续下潜 ▼</button></div>
+    <section class="results" id="results" hidden aria-labelledby="results-title"></section>
+    <p class="toast" id="toast" role="status" hidden></p>
+  </main>
+  <dialog id="dialog" aria-labelledby="dialog-title"><div class="dialog-panel"><header><div><span class="eyebrow">KRILLION · 万里挑一</span><h2 id="dialog-title"></h2></div><button class="icon-button close-dialog" aria-label="关闭弹窗">×</button></header><div id="dialog-body"></div></div></dialog>
+  <noscript>这个游戏需要启用 JavaScript 才能进行答题和下潜。</noscript>
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
