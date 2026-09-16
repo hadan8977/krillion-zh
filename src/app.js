@@ -1,14 +1,20 @@
-import { QUESTIONS, BANK_VERSION, PACKS } from "./questions.js";
-import { ROUND_MS, ROUND_COUNT, TIERS, localDate, newDive, beginRound, submitAnswer, restoreDive, totalScore, rank, shareText } from "./game.js";
+import { PACKS } from "./questions.js";
+import { BASE_BANK, validateBank } from "./bank.js";
+import { CloudClient } from "./cloud.js";
+import { ROUND_MS, ROUND_COUNT, TIERS, localDate, createGameEngine, totalScore, rank, shareText } from "./game.js";
 import { Ocean } from "./ocean.js";
 import { DiveAudio } from "./audio.js";
 
 const $ = (id) => document.getElementById(id);
 const escape = (value) => String(value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 // A new bank must not overwrite the previous bank's answers or daily attempt.
-const storageKey = (key) => ["settings", "corrections"].includes(key) ? `krillion-zh:${key}` : `krillion-zh:${BANK_VERSION}:${key}`;
+let BANK_VERSION = BASE_BANK.version, QUESTIONS = BASE_BANK.questions;
+let engine = createGameEngine();
+let { newDive, beginRound, submitAnswer, restoreDive } = engine;
+const cloud = new CloudClient();
+const storageKey = (key) => ["settings", "corrections", "active-bank", "pinned-banks"].includes(key) ? `krillion-zh:${key}` : `krillion-zh:${BANK_VERSION}:${key}`;
 let toastTimer, storageWarning = false, dive = null, composing = false, compositionEndedAt = 0, lastSecond = 25;
-let landingTimer, nextTimer;
+let landingTimer, nextTimer, starting = false, modalRevision = 0;
 const queuedCorrections = [];
 
 function toast(message) {
@@ -24,6 +30,26 @@ function read(key, fallback = null) {
 function write(key, value) {
   try { localStorage.setItem(storageKey(key), JSON.stringify(value)); }
   catch { if (!storageWarning) { storageWarning = true; toast("浏览器未能保存进度，请保持页面开启。"); } }
+}
+function useBank(bank) {
+  if (bank.version !== engine.bank.version) {
+    engine = createGameEngine(bank);
+    ({ newDive, beginRound, submitAnswer, restoreDive } = engine);
+  }
+  BANK_VERSION = engine.bank.version;
+  QUESTIONS = engine.bank.questions;
+  write("active-bank", engine.bank);
+}
+function pinnedBank(mode, date) {
+  const pinned = read("pinned-banks", {})?.[`${mode}:${date}`];
+  if (!pinned) return null;
+  try { return validateBank(pinned); }
+  catch { console.warn("A saved daily bank is incompatible with the current categories."); return null; }
+}
+const cachedBank = read("active-bank");
+if (cachedBank) {
+  try { useBank(validateBank(cachedBank)); }
+  catch { console.warn("Using the bundled question bank because the saved bank is incompatible."); }
 }
 const savedSettings = read("settings", {});
 const settings = {
@@ -72,6 +98,8 @@ function home() {
   for (const id of ["hud", "question", "answer-form", "feedback", "next-dock", "results", "answer-status"]) $(id).hidden = true;
   $("hero").hidden = $("intro").hidden = false;
   const today = localDate();
+  const pinned = pinnedBank("daily", today);
+  if (pinned) useBank(pinned);
   const saved = restoreDive(read(`daily:${today}`));
   $("begin").textContent = saved?.phase === "done" ? "▼ 查 看 今 日 潜 航 ▼" : saved ? "▼ 继 续 每 日 挑 战 ▼" : "▼ 每 日 挑 战 ▼";
   $("daily-date").textContent = `${today} · 今日固定 7 题`;
@@ -79,16 +107,38 @@ function home() {
 }
 
 async function start(mode = "daily", date = localDate(), pack = "all") {
+  if (starting) return;
   if (dive?.phase === "playing") { toast("请先完成当前题目，计时仍在继续。"); return; }
-  closeModal();
-  clearTimeout(landingTimer); clearTimeout(nextTimer);
-  const saved = mode !== "unlimited" ? restoreDive(read(`${mode}:${date}`)) : null;
-  const seed = mode === "unlimited" ? crypto.randomUUID() : date;
-  dive = saved || newDive(mode, date, seed, pack);
-  await audio.unlock();
-  if (dive.phase === "ready") { dive = beginRound(dive); audio.play("sink"); }
-  persist(); render();
-  if (dive.phase === "playing") $("answer").focus({ preventScroll: true });
+  starting = true;
+  $("begin").disabled = true;
+  const label = $("begin").textContent;
+  $("begin").textContent = "▼ 正 在 下 潜 ▼";
+  try {
+    closeModal();
+    clearTimeout(landingTimer); clearTimeout(nextTimer);
+    await audio.unlock();
+    const pinned = mode !== "unlimited" ? pinnedBank(mode, date) : null;
+    const existing = mode !== "unlimited" ? restoreDive(read(`${mode}:${date}`)) : null;
+    const latest = await cloud.latest();
+    useBank(pinned || (existing ? engine.bank : latest || engine.bank));
+    const saved = mode !== "unlimited" ? restoreDive(read(`${mode}:${date}`)) : null;
+    const seed = mode === "unlimited" ? crypto.randomUUID() : date;
+    dive = saved || newDive(mode, date, seed, pack);
+    if (!saved) dive.telemetry = await cloud.register(dive);
+    if (mode !== "unlimited") {
+      const previous = read("pinned-banks", {});
+      const entries = Object.entries(previous && typeof previous === "object" ? previous : {})
+        .filter(([key, value]) => value?.baseVersion === BASE_BANK.baseVersion && key !== `${mode}:${date}`);
+      const todayKey = `daily:${localDate()}`;
+      const today = entries.find(([key]) => key === todayKey);
+      const recent = entries.filter(([key]) => key !== todayKey).slice(today ? -2 : -3);
+      write("pinned-banks", Object.fromEntries([...(today ? [today] : []), ...recent, [`${mode}:${date}`, engine.bank]]));
+    }
+    if (dive.phase === "ready") { dive = beginRound(dive); audio.play("sink"); }
+    persist(); render();
+    if (dive.phase === "playing") $("answer").focus({ preventScroll: true });
+  } catch (error) { toast(error.message || "暂时无法开始，请重试。"); }
+  finally { starting = false; $("begin").disabled = false; $("begin").textContent = label; }
 }
 
 function render() {
@@ -124,7 +174,8 @@ function render() {
       ${result.tier === "miss" ? '<div class="depth-result">○</div>' : `<img src="./assets/${result.tier}.png" alt="">`}
       <h2>${tier.name}</h2><p class="accepted-answer">${result.answer ? escape(result.answer) : "这一题，未能下潜"}</p>
       <p class="points">+${result.score} 分 <span>↓ ${result.score * 10} 米</span></p><p class="blurb">${tier.blurb}</p>
-      <button class="text-button" data-action="question-detail" data-id="${result.questionId}">看看其他答案 →</button>`;
+      <button class="text-button" data-action="question-detail" data-id="${result.questionId}">看看其他答案 →</button>
+      <button class="text-button" data-action="feedback" data-id="${result.questionId}">补充或纠错</button>`;
     $("next").textContent = dive.results.length === ROUND_COUNT ? "查看潜航记录 ▼" : "继续下潜 ▼";
     $("next").disabled = false;
   } else if (finished) renderResults();
@@ -145,6 +196,7 @@ function updateClock() {
 
 function commitAnswer(raw) {
   if (dive?.phase !== "playing") return;
+  cloud.capture(dive, raw, Date.now() >= dive.deadline, ROUND_MS - Math.max(0, dive.deadline - Date.now()));
   const outcome = submitAnswer(dive, raw);
   if (outcome.error) {
     if (outcome.error === "unknown") {
@@ -158,6 +210,7 @@ function commitAnswer(raw) {
         $("answer-status").append(button);
       }
     }
+    persist();
     return;
   }
   const before = totalScore(dive) * 10;
@@ -187,25 +240,28 @@ function renderResults() {
       const q = QUESTIONS.find((item) => item.id === r.questionId);
       return `<div class="result-row" style="--color:${TIERS[r.tier].color}">${r.tier === "miss" ? "○" : `<img src="./assets/${r.tier}.png" alt="">`}<div><h3>${i + 1}. ${q.prompt}</h3><p>${escape(r.answer || "超时未答")} · <button data-action="question-detail" data-id="${q.id}">查看答案</button></p></div><strong>+${r.score}</strong></div>`;
     }).join("")}</div>
-    <p class="source-note">当前稀有度为题库策划分级，尚未经过中文玩家群体校准。<br>成绩保存在此浏览器中。<button class="text-button" data-action="quality">了解题库 →</button></p>
+    ${cloud.online ? '<button class="button-quiet" data-action="community-review">帮题库判断一个答案</button>' : ""}
+    <p class="source-note">每局采用开局时的评分，后续更新不会改变这次成绩。<br><button class="text-button" data-action="quality">了解题库 →</button></p>
     <button class="text-button" data-action="home">↑ 返回海面</button>
   </div>`;
   $("results").scrollTop = 0;
 }
 
 function openModal(title, html) {
+  modalRevision++;
   $("dialog-title").textContent = title;
   $("dialog-body").innerHTML = html;
   if (!$("dialog").open) $("dialog").showModal();
   $("dialog").scrollTop = 0;
 }
-function closeModal() { $("dialog").close(); }
+function closeModal() { modalRevision++; $("dialog").close(); }
 function menu() {
   openModal("选择你的海域", `<nav class="nav-list" aria-label="游戏菜单">
     <button data-action="home"><span>↓</span>每日挑战 · 今日固定</button><button data-action="unlimited"><span>∞</span>自由下潜 · 每局随机</button>
     <button data-action="archive"><span>⟲</span>往日海域</button><button data-action="packs"><span>▦</span>主题海域</button>
     <button data-action="stats"><span>♙</span>我的潜航</button><button data-action="settings"><span>⚙</span>设置</button>
-    <button data-action="quality"><span>◇</span>中文题库</button><button data-action="help"><span>?</span>常见问题</button></nav>
+    <button data-action="quality"><span>◇</span>中文题库</button><button data-action="feedback"><span>✎</span>补充或纠错</button>
+    <button data-action="community-review"><span>✓</span>帮题库判断</button><button data-action="help"><span>?</span>常见问题</button></nav>
     <p>七道题。二十五秒。你的答案能抵达多深？</p>${dive?.phase === "playing" ? '<p>当前题目仍在计时。</p>' : ""}`);
 }
 function showSettings() {
@@ -218,32 +274,80 @@ function showSettings() {
   $("setting-contrast").onchange = (event) => { settings.contrast = event.target.checked; applySettings(); };
 }
 function showTiers() {
-  openModal("越冷门，潜得越深", Object.entries(TIERS).filter(([id]) => id !== "miss").map(([id, tier]) => `<div class="tier-row" style="--color:${tier.color}"><img src="./assets/${id}.png" alt=""><div><b>${tier.name}</b><p>${tier.blurb}</p></div><strong>${tier.score}</strong></div>`).join("") + '<p>每一分代表10米。“万里挑一”是每题指定的珍宝答案。当前分级来自策划，不代表实测答题比例。</p>');
+  openModal("越冷门，潜得越深", Object.entries(TIERS).filter(([id]) => id !== "miss").map(([id, tier]) => `<div class="tier-row" style="--color:${tier.color}"><img src="./assets/${id}.png" alt=""><div><b>${tier.name}</b><p>${tier.blurb}</p></div><strong>${tier.score}</strong></div>`).join("") + '<p>每一分代表10米。“万里挑一”是每题指定的珍宝答案。分级从初始题库出发，在积累足够样本后定期调整。</p>');
 }
 function answerDetails(q) {
   const reference = q.source ? `<p><a href="${escape(q.source.url)}" target="_blank" rel="noopener noreferrer">品类参考：${escape(q.source.title)} ↗</a></p>` : "";
-  return `<p class="scope">${escape(q.scope)}</p><p>已收录 ${q.answers.length} 个答案 · 别名计作同一个答案</p><div class="answer-chips">${[...q.answers].sort((a, b) => TIERS[b.tier].score - TIERS[a.tier].score).map((a) => `<span style="--color:${TIERS[a.tier].color}" title="${escape(a.aliases.length ? `也接受：${a.aliases.join("、")}` : "常用名称")}">${a.label} · ${TIERS[a.tier].score}</span>`).join("")}</div>${reference}<p>答案按上面的品类范围收录，仍可能遗漏合理答案。参考资料用于说明品类，不是完整答案名单。分值为初始策划分级。</p><details><summary>支持的别名与常用叫法</summary><p>${q.answers.filter((a) => a.aliases.length).map((a) => `${escape(a.label)}：${escape(a.aliases.join("、"))}`).join("<br>") || "本题使用常用名称即可。"}</p></details>`;
+  return `<p class="scope">${escape(q.scope)}</p><p>已收录 ${q.answers.length} 个答案 · 别名计作同一个答案</p><div class="answer-chips">${[...q.answers].sort((a, b) => TIERS[b.tier].score - TIERS[a.tier].score).map((a) => `<span style="--color:${TIERS[a.tier].color}" title="${escape(a.aliases.length ? `也接受：${a.aliases.join("、")}` : "常用名称")}">${escape(a.label)} · ${TIERS[a.tier].score}</span>`).join("")}</div>${reference}<p>答案按上面的品类范围收录，仍可能遗漏合理答案。参考资料用于说明品类，不是完整答案名单。分值采用本局开局时的题库版本。</p><details><summary>支持的别名与常用叫法</summary><p>${q.answers.filter((a) => a.aliases.length).map((a) => `${escape(a.label)}：${escape(a.aliases.join("、"))}`).join("<br>") || "本题使用常用名称即可。"}</p></details>`;
 }
 function showQuality() {
+  cloud.expose(QUESTIONS.map(q => q.id));
   const total = QUESTIONS.reduce((n, q) => n + q.answers.length, 0);
-  openModal("认真对待每一个答案", `<p>这片海域有 <b>${QUESTIONS.length} 道日常分类题、${total} 个答案条目（按题计）</b>，围绕吃喝、居家、日常爱好与户外生活。每道题都从熟悉的品类出发，并说明收录范围。</p>
-    <h3>判对与稀有度，分开处理</h3><p>答案按明确品类整理，仍可能遗漏合理答案。繁简体、全半角以及列明的别名会归到同一答案；疑似错字仅提示，由你修改后重新提交。</p>
-    <p>稀有度目前由策划分级，没有使用虚构的答题人数、百分位或热度数据。“万里挑一”也兼顾答案趣味性。</p>
-    <h3>发现漏收或不同意见</h3><p>可导出勘误条目交给题库维护者；条目只保存在本机，不会自动联网发送。</p>
-    <form id="correction-form"><label for="correction-text">题目、你的答案和参考出处</label><textarea class="share-copy" id="correction-text" maxlength="1500" required placeholder="例如：某题中的某个别名未被接受；出处是……"></textarea><button class="button-quiet" type="submit">保存勘误条目</button> <button class="text-button" type="button" data-action="export-corrections">导出勘误</button></form>
+  openModal("认真对待每一个答案", `<p>这片海域有 <b>${QUESTIONS.length} 道日常分类题、${total} 个答案条目（按题计）</b>。每道题都从熟悉的品类出发，并说明收录范围。</p>
+    <h3>判对与稀有度，分开处理</h3><p>繁简体、全半角以及列明的别名归到同一答案；疑似错字只提供修改提示。</p>
+    <p>稀有度从初始分级出发，积累足够样本后定期调整。每局采用开局时的评分，更新不会改变已完成的成绩。</p>
+    <h3>一起补充题库</h3><p>未收录答案先成为候选，经过其他玩家交叉判断、达到门槛后自动加入。交叉判断仍可能有误，欢迎反馈。</p>
+    <button class="button-quiet" data-action="feedback">补充或纠错</button> <button class="text-button" data-action="community-review">帮题库判断</button> <button class="text-button" data-action="export-corrections">导出我的反馈</button>
     <h3>已收录答案与常用叫法</h3>${QUESTIONS.map((q, i) => `<details class="library-entry"><summary>${i + 1}. ${escape(q.prompt)} <small>(${q.answers.length})</small></summary>${answerDetails(q)}</details>`).join("")}`);
-  $("correction-form").onsubmit = (event) => {
+}
+function showFeedback(questionId = "", raw = "") {
+  if (dive?.phase === "playing") { toast("答完当前题目后，就可以补充或纠错。"); return; }
+  const recent = dive?.results.findLast(result => result.questionId === questionId);
+  openModal("补充或纠错", `<form id="correction-form" class="feedback-form">
+    <label>对应题目<select id="correction-question"><option value="">整体游戏反馈</option>${QUESTIONS.map((q, i) => `<option value="${q.id}" ${q.id === questionId ? "selected" : ""}>${i + 1}. ${escape(q.prompt)}</option>`).join("")}</select></label>
+    <label>反馈类型<select id="correction-kind"><option value="missing">有个合理答案没有收录</option><option value="incorrect">已收录答案不符合题目</option><option value="score">分数不太合理</option><option value="general">其他建议</option></select></label>
+    <label>相关答案<input id="correction-answer" maxlength="80" value="${escape(raw || recent?.raw || "")}" placeholder="例如：鲁特琴"></label>
+    <label>说明或出处<textarea id="correction-text" maxlength="1000" required placeholder="说说原因，或提供可参考的出处。"></textarea></label>
+    <button class="button-pink" type="submit">提交反馈</button></form>`);
+  const revision = modalRevision;
+  $("correction-form").onsubmit = async event => {
     event.preventDefault();
     const text = $("correction-text").value.trim();
-    if (!text) return;
+    const answer = $("correction-answer").value.trim();
+    const selected = $("correction-question").value;
+    const kind = selected ? $("correction-kind").value : "general";
+    if (!text || (kind === "missing" && !answer)) { toast("请填写说明；补充答案时也需要填写答案名称。"); return; }
+    const submit = event.currentTarget.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    const body = { id: crypto.randomUUID(), version: BANK_VERSION, questionId: selected || null, kind, answer, note: text };
+    const entry = { ...body, date: new Date().toISOString(), bankVersion: BANK_VERSION, text };
     const previous = read("corrections", []);
-    const entry = { date: new Date().toISOString(), bankVersion: BANK_VERSION, text };
-    const existing = Array.isArray(previous) ? previous : [];
     queuedCorrections.push(entry);
-    write("corrections", [...existing, entry].slice(-100));
-    $("correction-text").value = "";
-    toast("勘误条目已记录，可点击“导出勘误”下载。尚未发送给任何人。");
+    write("corrections", [...(Array.isArray(previous) ? previous : []), entry].slice(-100));
+    try {
+      await cloud.feedback(body);
+      if (modalRevision === revision) closeModal();
+      toast("反馈已提交，谢谢你帮助完善题库。");
+    } catch (error) { toast(`反馈已保存在本机，尚未发送成功。${error.message}`); }
+    finally { submit.disabled = false; }
   };
+}
+async function communityReview() {
+  if (dive?.phase === "playing") { toast("答完当前题目后，再帮题库判断吧。"); return; }
+  openModal("帮题库判断", "<p>正在寻找一个待确认的答案……</p>");
+  const revision = modalRevision;
+  try {
+    const candidate = await cloud.review();
+    if (modalRevision !== revision) return;
+    if (!candidate) {
+      $("dialog-body").innerHTML = "<p>目前没有适合你判断的候选答案。先完整玩一局，之后再来看看。</p>";
+      return;
+    }
+    $("dialog-body").innerHTML = `<p>只判断它是否符合题目；不确定就跳过。</p>
+      <h3>${escape(candidate.prompt)}</h3><p class="scope">${escape(candidate.scope)}</p>
+      <p class="candidate-answer">${escape(candidate.label)}</p><div class="review-actions">
+      <button class="button-pink" id="review-yes">符合题目</button>
+      <button class="button-quiet" id="review-no">不符合</button>
+      <button class="text-button" data-action="close">不确定，跳过</button></div>`;
+    for (const [id, agrees] of [["review-yes", true], ["review-no", false]]) {
+      $(id).onclick = async () => {
+        const yes = $("review-yes"), no = $("review-no");
+        yes.disabled = no.disabled = true;
+        try { await cloud.vote(candidate.ticket, agrees); if (modalRevision === revision) closeModal(); toast("判断已记录，谢谢你。"); }
+        catch (error) { toast(error.message); yes.disabled = no.disabled = false; }
+      };
+    }
+  } catch (error) { if (modalRevision === revision) $("dialog-body").textContent = error.message; }
 }
 function archive() {
   const today = localDate();
@@ -278,9 +382,11 @@ const actions = {
   home, close: closeModal, archive, packs, stats, share, settings: showSettings, tiers: showTiers, quality: showQuality,
   unlimited: () => start("unlimited"), "play-archive": (button) => start("archive", button.dataset.date),
   "play-pack": (button) => { if (Object.hasOwn(PACKS, button.dataset.pack)) start("unlimited", localDate(), button.dataset.pack); },
-  "question-detail": (button) => { const q = QUESTIONS.find((item) => item.id === button.dataset.id); if (q) openModal(q.prompt, answerDetails(q)); },
+  "question-detail": (button) => { const q = QUESTIONS.find((item) => item.id === button.dataset.id); if (q) { cloud.expose([q.id]); openModal(q.prompt, answerDetails(q)); } },
+  feedback: button => showFeedback(button?.dataset.id || ""),
+  "community-review": communityReview,
   "export-corrections": exportCorrections,
-  help: () => openModal("关于这片海", '<h3>怎样得分？</h3><p>七道题，每题25秒，只提交一个正确答案。答案的稀有度决定得分，每一分下潜10米。无效答案可以在剩余时间内重试。</p><h3>为什么我的答案没有被接受？</h3><p>请先检查题目范围；也可能是别名漏收。结算后可以查看已收录答案与判题范围，在中文题库页导出勘误。游戏不会声称未收录的答案一定错误。</p><h3>每日什么时候更新？</h3><p>北京时间零点。同一题库版本中，每天七题相同。每日进度保存在当前浏览器，刷新继续计时；想多玩几次，请选择自由下潜。</p><h3>数据会传到哪里？</h3><p>当前版本在本机判题和保存进度，没有账户、全球排行榜或跨设备同步。</p><h3>关于原作</h3><p>玩法与像素海洋视觉参考 <a href="https://krillion.io/" target="_blank" rel="noopener noreferrer">Krillion</a>。本版本为独立中文适配，不代表原站官方版本。中文像素字体为 Fusion Pixel。</p>'),
+  help: () => openModal("关于这片海", '<h3>怎样得分？</h3><p>七道题，每题25秒，只提交一个正确答案。答案的稀有度决定得分，每一分下潜10米。无效答案可以在剩余时间内重试。</p><h3>为什么我的答案没有被接受？</h3><p>请先检查题目范围；也可能是别名漏收。结算后可以查看已收录答案与判题范围，点击“补充或纠错”提交反馈。游戏不会声称未收录的答案一定错误。</p><h3>每日什么时候更新？</h3><p>北京时间零点。同一题库版本中，每天七题相同。每日进度保存在当前浏览器，刷新继续计时；想多玩几次，请选择自由下潜。</p><h3>题库更新会影响这局成绩吗？</h3><p>不会。新开的一局使用最新可用题库；已经开始的每日挑战保留开局时的评分。</p><h3>关于原作</h3><p>玩法与像素海洋视觉参考 <a href="https://krillion.io/" target="_blank" rel="noopener noreferrer">Krillion</a>。本版本为独立中文适配，不代表原站官方版本。中文像素字体为 Fusion Pixel。</p>'),
 };
 
 document.addEventListener("click", (event) => {
@@ -317,6 +423,7 @@ $("answer-form").onsubmit = (event) => {
   commitAnswer($("answer").value);
 };
 $("dialog").querySelector(".close-dialog").onclick = closeModal;
+$("dialog").addEventListener("cancel", () => { modalRevision++; });
 $("dialog").addEventListener("click", (event) => { if (event.target === $("dialog")) { const box = $("dialog").getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) closeModal(); } });
 document.addEventListener("pointermove", (event) => { if (event.pointerType === "mouse") ocean.pointer = { x: Math.max(0.05, Math.min(0.92, event.clientX / innerWidth)), y: event.clientY / innerHeight }; });
 document.addEventListener("visibilitychange", () => { audio.visibility(document.hidden); if (!document.hidden) updateClock(); });
@@ -329,5 +436,5 @@ window.addEventListener("storage", (event) => {
 });
 setInterval(updateClock, 100);
 const active = restoreDive(read("active"));
-if (active && active.phase !== "done") { dive = active; if (dive.phase === "ready") dive = beginRound(dive); persist(); render(); }
+if (active && active.phase !== "done") { dive = active; if (dive.phase === "ready") dive = beginRound(dive); persist(); render(); if (dive.telemetry?.token) void cloud.latest(); }
 else home();

@@ -3,14 +3,20 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
+if (process.loadEnvFile) {
+  try { process.loadEnvFile(".env.local"); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+}
+const api = new Map(await Promise.all(["bank", "session", "events", "feedback", "review", "refresh"].map(async name => [`/api/${name}`, (await import(`./api/${name}.js`)).default])));
 const root = fileURLToPath(new URL(".", import.meta.url));
 const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".webp": "image/webp", ".woff2": "font/woff2" };
 const port = Number(process.env.PORT || 3210);
 createServer(async (request, response) => {
-  if (!["GET", "HEAD"].includes(request.method)) { response.writeHead(405).end(); return; }
   let name;
   try { name = decodeURIComponent(new URL(request.url, "http://localhost").pathname); }
   catch { response.writeHead(400).end(); return; }
+  if (api.has(name)) { await api.get(name)(request, response); return; }
+  if (!["GET", "HEAD"].includes(request.method)) { response.writeHead(405).end(); return; }
   if (name === "/") name = "/index.html";
   const target = path.resolve(root, `.${name}`);
   const relative = path.relative(root, target).replaceAll("\\", "/");

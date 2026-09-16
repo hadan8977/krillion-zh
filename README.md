@@ -1,8 +1,9 @@
 # Krillion Chinese — 万里挑一
 
-A standalone, local Chinese adaptation of [Krillion](https://krillion.io/).
-It has its own server, dependencies, storage keys, and UI. It runs independently
-and does not require a database, cloud account, or environment file.
+A standalone Chinese adaptation of [Krillion](https://krillion.io/), deployed as
+static assets and Node API functions on Vercel. Optional Supabase storage powers
+anonymous answer records, player feedback, and automatic answer-bank updates.
+The game also runs locally without cloud credentials.
 
 ## Run
 
@@ -14,16 +15,117 @@ npm run dev
 ```
 
 Open **http://localhost:3210**. Set `PORT` to use a different port. The server binds
-to the local computer only. All game assets and answer matching run locally;
-reference links open their original websites. There is no production deployment.
+to the local computer only. Answer matching and animation run in the browser.
+The local server loads `.env.local` when present and serves the same API handlers
+as Vercel. Without cloud configuration, play and local saves still work; feedback
+stays queued locally until it can be sent.
 
 ```sh
 npm test
 ```
 
-The targeted Node tests cover the answer bank, Chinese normalization, semantic
-boundaries, deterministic daily selection, scoring, deadlines, and save recovery.
-No build step is needed.
+Tests cover Chinese matching, category boundaries, selection, scoring, recovery,
+automatic updates, HTTP authentication and collection, and actual Postgres SQL
+using PGlite. The Supabase HTTP transport in tests is a local adapter, so these
+tests do not establish that a hosted project has been configured. No frontend
+build step is needed; Vercel bundles the API functions.
+
+## Cloud setup on the deployment machine
+
+Use a **dedicated Supabase project for this game**. GitHub pushes already trigger
+the connected Vercel deployment; database setup and server secrets are separate.
+This repository does not contain any account credentials.
+
+1. Create and connect Supabase through the Vercel project's Storage/Marketplace
+   page, or create the project directly in Supabase. The
+   [official integration guide](https://supabase.com/docs/guides/integrations/vercel-marketplace)
+   describes both existing-project and new-project connections.
+2. Run [`supabase/schema.sql`](supabase/schema.sql) in that project's SQL Editor.
+   It creates the `kr_*` tables and functions, enables RLS, and restricts raw data
+   and write operations to the server's `service_role`. It can be rerun. The first
+   API request seeds the bundled answer bank without overwriting an existing release.
+3. Configure these **server-only** variables in the game's Vercel project:
+
+   | Variable | Value |
+   | --- | --- |
+   | `SUPABASE_URL` | The dedicated project's HTTPS API URL |
+   | `SUPABASE_SECRET_KEY` | Its `sb_secret_...` API key; the legacy `SUPABASE_SERVICE_ROLE_KEY` is also supported |
+   | `CRON_SECRET` | A generated random secret of at least 32 characters |
+
+   Use the actual unprefixed names above even if the Marketplace integration
+   supplies additional variables. Do not use a publishable/anon key for the server,
+   or add `NEXT_PUBLIC_`/`VITE_` to a secret. For local integration testing, copy
+   [`.env.example`](.env.example) to ignored `.env.local` and fill in the values.
+   Account-wide Supabase/Vercel access tokens are not required at runtime.
+4. Redeploy the GitHub revision after saving the environment variables. Keep
+   Vercel's framework preset as **Other**; `vercel.json` defines the existing static
+   asset allowlist, Node functions, API rewrites, and daily cron. The database
+   schema must be applied before enabling the configured API.
+
+`GET /api/bank` returns `online: true` only when server configuration is present
+and the database can supply the bank. Play a round and submit feedback, then check
+`kr_attempts` and `kr_feedback` in Supabase's Table Editor to verify hosted writes.
+No public page exposes raw submissions or player identifiers.
+
+Vercel calls `/api/refresh` at `0 16 * * *` (UTC), around midnight in Beijing.
+Its [cron scheduler](https://vercel.com/docs/cron-jobs/manage-cron-jobs) sends
+`Authorization: Bearer <CRON_SECRET>` automatically. On Hobby, a daily invocation
+can occur anywhere within that hour; see the
+[current limits](https://vercel.com/docs/cron-jobs/usage-and-pricing).
+The function can also be invoked by a deployment script with that server secret.
+Repeated or competing runs cannot publish twice for the same Beijing date.
+
+After setup, collection, score recalculation, alias learning, consensus-based
+additions, and publication run without an administrator or AI. Ordinary data
+updates do not need a Git commit or redeployment. Git changes are still needed
+when intentionally changing the category definitions or the update policy.
+
+## Automatic data and scoring rules
+
+- **Records:** submissions include question, input, match/unknown/timeout outcome,
+  elapsed time, bank version, and whether answers were already shown. Feedback
+  records its category, answer, and explanation. The API derives questions and
+  adjudicates inputs itself; it does not trust a client-supplied score.
+- **Anonymous identity:** a signed, HttpOnly cookie contains a random browser ID
+  lasting 30 days. No account, name, email, or raw IP is requested or stored in the
+  game database. A daily HMAC of the network address supports rate limits and
+  duplicate-vote suppression. Likely contact details and credentials are redacted
+  from submissions. Infrastructure providers have their own request logs.
+- **Sampling:** scores use the last 30 days, at most one first attempt per browser
+  and question. Retries, timeouts, and known answer exposures are excluded; unknown
+  first answers remain in the denominator. A question needs 50 eligible samples.
+- **Weights:** observed frequencies are smoothed with a 30-sample prior based on
+  the current tiers. Scores normally move at most one tier each day; one answer
+  remains the 100-point gem. The special 15-point wordplay tier stays curated.
+- **Aliases:** deterministic wrappers such as “一架钢琴” can map to an existing
+  answer after three distinct submitters across two dates. Similar spelling alone
+  never establishes an alias.
+- **New answers:** unknown guesses and missing-answer feedback form candidates.
+  Admission needs five distinct submitters across two dates, at least 15 votes,
+  at least 85% approval, and a Wilson 95% lower bound of at least 60%. Reviewers
+  must have correctly answered three different questions and cannot review their
+  own suggestion. Each browser votes once per candidate; the same network can
+  contribute at most one vote per candidate per UTC day. Players can skip items
+  they do not know. At most three new answers per question are admitted daily.
+- **Other feedback:** incorrect-answer reports, score complaints, and general
+  suggestions are recorded. They do not directly override scores or remove answers;
+  score changes come from samples, and additions follow the rules above.
+- **Versions:** updates create immutable `kr_banks` snapshots and a change log.
+  New games fetch the latest snapshot. An active dive and today's existing daily
+  attempt keep their opening bank and scores, including after reload. Question
+  selection uses the base category version so score changes do not reshuffle a day.
+
+The executable thresholds live in `backend/automation.js`; SQL deduplication,
+review tickets, and atomic publication live in `supabase/schema.sql`. Inspect
+`kr_banks.changes` for the evidence behind a release, `kr_candidates`/`kr_votes` for
+community inputs, and `kr_channels` for the current version and refresh date.
+Raw attempts, feedback, votes, and bank snapshots are retained; aggregation uses
+a 30-day window. Only expired rate-limit buckets and review tickets are cleaned up.
+
+These are browser-level samples, not verified unique people or a representative
+survey. Clearing cookies and coordinated voting cannot be completely prevented
+without stronger identity checks. Community agreement can also be wrong: the
+system does not infer semantic truth or guarantee an exhaustive answer bank.
 
 ## Implemented
 
@@ -72,7 +174,8 @@ alternative names for the same card game resolve to one score. Tests exercise
 accepted examples and nearby exclusions for every category, all declared aliases,
 and fresh-seed versus daily selection behavior.
 
-`src/game.js` is the only implementation of normalization and adjudication:
+`src/answer-rules.js` and `src/game.js` share normalization and adjudication
+between the browser and API:
 
 - OpenCC converts traditional Chinese; NFKC handles compatibility forms.
 - Known aliases resolve to one canonical answer and score.
@@ -82,27 +185,26 @@ and fresh-seed versus daily selection behavior.
   may produce a suggestion. Suggestions require editing and resubmission; they
   never award points automatically.
 - An unmatched input is described as unrecognized, not proven false. Players can
-  retry while time remains and export a local correction with a reference.
+  retry while time remains and submit a correction with a reference.
 
-**Rarity is an initial editorial assignment, not measured Chinese familiarity.**
-There has been no independent human review or Chinese player calibration study. The current bank is sufficient
-to exercise the game but too small for a sustained daily content schedule without
-repetition. The UI makes these limits explicit and invents no population counts
-or percentiles.
+**Bundled rarity is an initial editorial assignment.** Connected deployments
+adjust it only after the sampling threshold is reached. There has been no
+independent representative study of Chinese player familiarity. The 60 categories
+will recur during sustained daily play; the game invents no population counts or
+percentiles.
 
 For content expansion, preserve a precise inclusion rule, canonical identities,
-explicit aliases, relevant references where available, and one designated gem per prompt. Add regressions
-for genuine omissions and false positives. Before treating rarity as validated,
-collect consented responses from the intended Chinese-speaking audience, merge
-aliases, and compare answer frequencies within each prompt. Human review is still
-needed for ambiguous categories and the “too clever” tier. Updating answer content
-or tiers requires incrementing `BANK_VERSION`. Active games, daily results, and
-history use versioned storage keys. The earlier bank's saved records remain in
-the browser without being loaded into the new bank; settings and corrections
-remain shared.
+explicit aliases, relevant references where available, and one designated gem per
+prompt. Add regressions for genuine omissions and false positives. Changes to
+bundled content require incrementing `BANK_VERSION`; cloud releases append their
+own revision without changing the category seed. Active games, daily results, and
+local history use versioned storage keys. Old records remain in the browser;
+settings, correction exports, and pending cloud submissions remain shared.
 
 Corrections are stored under `krillion-zh:corrections` and can be downloaded from
-the Chinese question-bank dialog. Nothing is automatically sent to a maintainer.
+the Chinese question-bank dialog. Connected feedback is sent to this game's
+database; failed requests remain queued for retry, with a local-only status shown
+until the server confirms receipt.
 
 ## Assets and provenance
 
