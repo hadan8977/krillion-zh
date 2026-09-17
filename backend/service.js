@@ -3,6 +3,7 @@ import { BASE_BANK, validateBank } from "../src/bank.js";
 import { createGameEngine, localDate, normalize } from "../src/game.js";
 import { PACKS } from "../src/questions.js";
 import { candidateName, recalibrate } from "./automation.js";
+import { llmConfigured, reviewCandidate } from "./llm_review.js";
 import { configured, database, rpc, ServiceError } from "./storage.js";
 import { networkKey, rateLimit, readToken, secretEqual, signToken, uuid, visitor } from "./http.js";
 
@@ -92,28 +93,13 @@ export async function feedback(context) {
   } });
   return { recorded: true };
 }
-export async function review(context) {
-  await rateLimit(context, "review", 30, 600);
-  const id = visitor(context);
-  if (context.request.method === "POST") {
-    const input = context.body;
-    if (!uuid(input?.ticket) || typeof input.agrees !== "boolean") throw new ServiceError(400, "请选择是否符合题目。");
-    const recorded = await rpc("kr_cast_review", { p_ticket: input.ticket, p_visitor: id, p_network: networkKey(context.request), p_agrees: input.agrees });
-    if (!recorded) throw new ServiceError(409, "这条反馈已过期，请换一条。");
-    return { recorded: true };
-  }
-  const candidate = await rpc("kr_issue_review", { p_base: BASE_BANK.baseVersion, p_visitor: id });
-  if (!candidate) return { candidate: null };
-  const rules = await currentBank(), question = rules.questions.find(q => q.id === candidate.questionId);
-  return { candidate: { ...candidate, prompt: question.prompt, scope: question.scope } };
-}
 export async function refresh(context) {
   if (!configured() || !secretEqual(context.request.headers.authorization || "", `Bearer ${process.env.CRON_SECRET}`)) throw new ServiceError(401, "未获授权。");
   const current = await currentBank(), day = localDate();
   const channel = await database(`kr_channels?${new URLSearchParams({ base_version: `eq.${BASE_BANK.baseVersion}`, select: "refreshed_on" })}`);
   if (channel[0]?.refreshed_on >= day) return { updated: false, reason: "already-refreshed", version: current.version };
   const data = await rpc("kr_automation_data", { p_base: BASE_BANK.baseVersion });
-  const { bank: next, changes } = recalibrate(current, data.observations, data.candidates);
+  const { bank: next, changes } = await recalibrateWithLlm(current, data.observations, data.candidates);
   if (changes.length) {
     const digest = createHash("sha256").update(JSON.stringify(next.questions)).digest("hex").slice(0, 12);
     next.version = `${BASE_BANK.baseVersion}~${day}-${digest}`;
@@ -125,3 +111,52 @@ export async function refresh(context) {
   latestCache = null;
   return { updated: published && changes.length > 0, version: published ? next.version : (await currentBank()).version, changes: published ? changes.length : 0 };
 }
+
+async function recalibrateWithLlm(current, observations, candidates) {
+  if (!llmConfigured() || !candidates.length) return recalibrate(current, observations, candidates);
+  const questions = current.questions;
+  const questionById = new Map(questions.map(q => [q.id, q]));
+  const reviewed = [];
+  for (const candidate of candidates) {
+    const question = questionById.get(candidate.questionId);
+    if (!question || !candidateName(candidate.label)) continue;
+    if (candidate.submitters < 3 || candidate.days < 2) continue;
+    // Only review unreviewed candidates every day; previously approved candidates are kept.
+    if (candidate.llmApproved === true) {
+      reviewed.push(candidate);
+      continue;
+    }
+    const verdict = await reviewCandidate(question, candidate.label, question.answers.flatMap(a => [a.label, ...a.aliases]));
+    if (verdict?.approved) {
+      reviewed.push({ ...candidate, llmApproved: true, llmReason: verdict?.reason });
+      // Persist verdict so we don't re-review this entry tomorrow.
+      const existing = await database(`kr_candidates?${new URLSearchParams({
+        base_version: 'eq.' + BASE_BANK.baseVersion,
+        question_id: 'eq.' + candidate.questionId,
+        normalized: 'eq.' + candidate.normalized,
+      })}`);
+      if (existing.length) {
+        await database(`kr_candidates?${new URLSearchParams({
+          base_version: 'eq.' + BASE_BANK.baseVersion,
+          question_id: 'eq.' + candidate.questionId,
+          normalized: 'eq.' + candidate.normalized,
+        })}`, { method: "PATCH", body: { llm_approved: true, llm_reason: verdict.reason, reviewed_at: new Date().toISOString() } });
+      }
+    } else if (verdict && !verdict.approved) {
+      const existing = await database(`kr_candidates?${new URLSearchParams({
+        base_version: 'eq.' + BASE_BANK.baseVersion,
+        question_id: 'eq.' + candidate.questionId,
+        normalized: 'eq.' + candidate.normalized,
+      })}`);
+      if (existing.length) {
+        await database(`kr_candidates?${new URLSearchParams({
+          base_version: 'eq.' + BASE_BANK.baseVersion,
+          question_id: 'eq.' + candidate.questionId,
+          normalized: 'eq.' + candidate.normalized,
+        })}`, { method: "PATCH", body: { llm_approved: false, llm_reason: verdict?.reason || "rejected", reviewed_at: new Date().toISOString() } });
+      }
+    }
+  }
+  return recalibrate(current, observations, reviewed);
+}
+

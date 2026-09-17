@@ -240,7 +240,6 @@ function renderResults() {
       const q = QUESTIONS.find((item) => item.id === r.questionId);
       return `<div class="result-row" style="--color:${TIERS[r.tier].color}">${r.tier === "miss" ? "○" : `<img src="./assets/${r.tier}.png" alt="">`}<div><h3>${i + 1}. ${q.prompt}</h3><p>${escape(r.answer || "超时未答")} · <button data-action="question-detail" data-id="${q.id}">查看答案</button></p></div><strong>+${r.score}</strong></div>`;
     }).join("")}</div>
-    ${cloud.online ? '<button class="button-quiet" data-action="community-review">帮题库判断一个答案</button>' : ""}
     <p class="source-note">每局采用开局时的评分，后续更新不会改变这次成绩。<br><button class="text-button" data-action="quality">了解题库 →</button></p>
     <button class="text-button" data-action="home">↑ 返回海面</button>
   </div>`;
@@ -261,7 +260,7 @@ function menu() {
     <button data-action="archive"><span>⟲</span>往日海域</button><button data-action="packs"><span>▦</span>主题海域</button>
     <button data-action="stats"><span>♙</span>我的潜航</button><button data-action="settings"><span>⚙</span>设置</button>
     <button data-action="quality"><span>◇</span>中文题库</button><button data-action="feedback"><span>✎</span>补充或纠错</button>
-    <button data-action="community-review"><span>✓</span>帮题库判断</button><button data-action="help"><span>?</span>常见问题</button></nav>
+    <button data-action="help"><span>?</span>常见问题</button></nav>
     <p>七道题。二十五秒。你的答案能抵达多深？</p>${dive?.phase === "playing" ? '<p>当前题目仍在计时。</p>' : ""}`);
 }
 function showSettings() {
@@ -287,7 +286,7 @@ function showQuality() {
     <h3>判对与稀有度，分开处理</h3><p>繁简体、全半角以及列明的别名归到同一答案；疑似错字只提供修改提示。</p>
     <p>稀有度从初始分级出发，积累足够样本后定期调整。每局采用开局时的评分，更新不会改变已完成的成绩。</p>
     <h3>一起补充题库</h3><p>未收录答案先成为候选，经过其他玩家交叉判断、达到门槛后自动加入。交叉判断仍可能有误，欢迎反馈。</p>
-    <button class="button-quiet" data-action="feedback">补充或纠错</button> <button class="text-button" data-action="community-review">帮题库判断</button> <button class="text-button" data-action="export-corrections">导出我的反馈</button>
+    <button class="button-quiet" data-action="feedback">补充或纠错</button> <button class="text-button" data-action="export-corrections">导出我的反馈</button>
     <h3>已收录答案与常用叫法</h3>${QUESTIONS.map((q, i) => `<details class="library-entry"><summary>${i + 1}. ${escape(q.prompt)} <small>(${q.answers.length})</small></summary>${answerDetails(q)}</details>`).join("")}`);
 }
 function showFeedback(questionId = "", raw = "") {
@@ -321,33 +320,6 @@ function showFeedback(questionId = "", raw = "") {
     } catch (error) { toast(`反馈已保存在本机，尚未发送成功。${error.message}`); }
     finally { submit.disabled = false; }
   };
-}
-async function communityReview() {
-  if (dive?.phase === "playing") { toast("答完当前题目后，再帮题库判断吧。"); return; }
-  openModal("帮题库判断", "<p>正在寻找一个待确认的答案……</p>");
-  const revision = modalRevision;
-  try {
-    const candidate = await cloud.review();
-    if (modalRevision !== revision) return;
-    if (!candidate) {
-      $("dialog-body").innerHTML = "<p>目前没有适合你判断的候选答案。先完整玩一局，之后再来看看。</p>";
-      return;
-    }
-    $("dialog-body").innerHTML = `<p>只判断它是否符合题目；不确定就跳过。</p>
-      <h3>${escape(candidate.prompt)}</h3><p class="scope">${escape(candidate.scope)}</p>
-      <p class="candidate-answer">${escape(candidate.label)}</p><div class="review-actions">
-      <button class="button-pink" id="review-yes">符合题目</button>
-      <button class="button-quiet" id="review-no">不符合</button>
-      <button class="text-button" data-action="close">不确定，跳过</button></div>`;
-    for (const [id, agrees] of [["review-yes", true], ["review-no", false]]) {
-      $(id).onclick = async () => {
-        const yes = $("review-yes"), no = $("review-no");
-        yes.disabled = no.disabled = true;
-        try { await cloud.vote(candidate.ticket, agrees); if (modalRevision === revision) closeModal(); toast("判断已记录，谢谢你。"); }
-        catch (error) { toast(error.message); yes.disabled = no.disabled = false; }
-      };
-    }
-  } catch (error) { if (modalRevision === revision) $("dialog-body").textContent = error.message; }
 }
 function archive() {
   const today = localDate();
@@ -384,7 +356,6 @@ const actions = {
   "play-pack": (button) => { if (Object.hasOwn(PACKS, button.dataset.pack)) start("unlimited", localDate(), button.dataset.pack); },
   "question-detail": (button) => { const q = QUESTIONS.find((item) => item.id === button.dataset.id); if (q) { cloud.expose([q.id]); openModal(q.prompt, answerDetails(q)); } },
   feedback: button => showFeedback(button?.dataset.id || ""),
-  "community-review": communityReview,
   "export-corrections": exportCorrections,
   help: () => openModal("关于这片海", '<h3>怎样得分？</h3><p>七道题，每题25秒，只提交一个正确答案。答案的稀有度决定得分，每一分下潜10米。无效答案可以在剩余时间内重试。</p><h3>为什么我的答案没有被接受？</h3><p>请先检查题目范围；也可能是别名漏收。结算后可以查看已收录答案与判题范围，点击“补充或纠错”提交反馈。游戏不会声称未收录的答案一定错误。</p><h3>每日什么时候更新？</h3><p>北京时间零点。同一题库版本中，每天七题相同。每日进度保存在当前浏览器，刷新继续计时；想多玩几次，请选择自由下潜。</p><h3>题库更新会影响这局成绩吗？</h3><p>不会。新开的一局使用最新可用题库；已经开始的每日挑战保留开局时的评分。</p><h3>关于原作</h3><p>玩法与像素海洋视觉参考 <a href="https://krillion.io/" target="_blank" rel="noopener noreferrer">Krillion</a>。本版本为独立中文适配，不代表原站官方版本。中文像素字体为 Fusion Pixel。</p>'),
 };

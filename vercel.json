@@ -7,6 +7,6 @@
     { "src": "src/**", "use": "@vercel/static" },
     { "src": "vendor/**", "use": "@vercel/static" }
   ],
-  "rewrites": [{ "source": "/api/:action(bank|session|events|feedback|review|refresh)", "destination": "/api/:action.js" }],
+  "rewrites": [{ "source": "/api/:action(bank|session|events|feedback|refresh)", "destination": "/api/:action.js" }],
   "crons": [{ "path": "/api/refresh", "schedule": "0 16 * * *" }]
 }

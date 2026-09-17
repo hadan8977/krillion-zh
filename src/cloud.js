@@ -119,12 +119,4 @@ export class CloudClient {
     this.save();
     return result;
   }
-  async review() {
-    if (!this.online) await this.latest();
-    if (!this.online) return null;
-    const { candidate } = await request("review");
-    if (candidate) this.expose([candidate.questionId]);
-    return candidate;
-  }
-  vote(ticket, agrees) { return request("review", { ticket, agrees }); }
 }

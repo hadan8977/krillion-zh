@@ -38,7 +38,7 @@ export async function cloudFixture() {
       return Response.json(result);
     } catch (error) { return Response.json({ error: error.message }, { status: 400 }); }
   };
-  const routes = new Map(await Promise.all(["bank", "session", "events", "feedback", "review", "refresh"].map(async name => [`/api/${name}`, (await import(`../../api/${name}.js`)).default])));
+  const routes = new Map(await Promise.all(["bank", "session", "events", "feedback", "refresh"].map(async name => [`/api/${name}`, (await import(`../../api/${name}.js`)).default])));
   const root = new URL("../../", import.meta.url);
   const types = { html: "text/html", js: "text/javascript", css: "text/css", png: "image/png", webp: "image/webp", woff2: "font/woff2" };
   const server = createServer(async (req, res) => {

@@ -64,7 +64,6 @@ test("HTTP collection, signed identity, server adjudication, feedback and protec
   assert.deepEqual(records, [{ answer: "鲁特琴", note: "这是一种拨弦乐器。联系 [已省略联系方式]" }]);
   assert.equal((await fixture.db.query("select label from public.kr_candidates where question_id='instruments'")).rows[0].label, "鲁特琴");
   assert.equal((await request("feedback", { ...feedback, questionId: "invalid" })).status, 400);
-  assert.equal((await request("review")).body.candidate, null);
   assert.equal((await request("refresh")).status, 401);
   const refresh = await request("refresh", undefined, { Authorization: `Bearer ${fixture.secret}` });
   assert.equal(refresh.status, 200);

@@ -44,9 +44,19 @@ create table if not exists public.kr_candidates (
   question_id text not null,
   normalized text not null,
   label text not null,
+  llm_approved boolean,
+  llm_reason text default '',
+  reviewed_at timestamptz,
   created_at timestamptz not null default now(),
   primary key (base_version, question_id, normalized)
 );
+create index if not exists kr_candidates_pending on public.kr_candidates (base_version, llm_approved, reviewed_at);
+
+-- Upgrade for existing databases: add LLM review columns to kr_candidates.
+alter table if exists public.kr_candidates add column if not exists llm_approved boolean;
+alter table if exists public.kr_candidates add column if not exists llm_reason text default '';
+alter table if exists public.kr_candidates add column if not exists reviewed_at timestamptz;
+
 create table if not exists public.kr_votes (
   base_version text not null,
   question_id text not null,
@@ -134,7 +144,13 @@ end $$;
 
 create or replace function public.kr_automation_data(p_base text) returns jsonb
 language sql security definer set search_path = '' as $$
-  with first_answers as (
+  with submitted_rows as (
+    select question_id,normalized,visitor_id,created_at from public.kr_attempts
+      where base_version=p_base and outcome='unknown' and not spoiled
+    union all
+    select question_id,normalized,visitor_id,created_at from public.kr_feedback
+      where base_version=p_base and kind='missing' and normalized<>''
+  ), first_answers as (
     select distinct on (question_id,visitor_id) question_id,visitor_id,normalized
     from public.kr_attempts
     where base_version=p_base and created_at>now()-interval '30 days'
@@ -142,28 +158,19 @@ language sql security definer set search_path = '' as $$
     order by question_id,visitor_id,created_at,session_id
   ), samples as (
     select question_id,normalized,count(*)::integer as n from first_answers group by question_id,normalized
-  ), submitted as (
-    select question_id,normalized,visitor_id,created_at from public.kr_attempts
-      where base_version=p_base and outcome='unknown' and not spoiled
-    union all
-    select question_id,normalized,visitor_id,created_at from public.kr_feedback
-      where base_version=p_base and kind='missing' and normalized<>''
   ), submissions as (
     select question_id,normalized,count(distinct visitor_id)::integer as visitors,
       count(distinct (created_at at time zone 'Asia/Shanghai')::date)::integer as days
-    from submitted where created_at>now()-interval '30 days'
-    group by question_id,normalized
-  ), reviews as (
-    select question_id,normalized,count(*) filter(where agrees)::integer as yes,
-      count(*) filter(where not agrees)::integer as no
-    from public.kr_votes where base_version=p_base group by question_id,normalized
+    from submitted_rows where created_at>now()-interval '30 days' group by question_id,normalized
   )
   select jsonb_build_object(
     'observations',coalesce((select jsonb_agg(jsonb_build_object('questionId',question_id,'normalized',normalized,'count',n)) from samples),'[]'),
     'candidates',coalesce((select jsonb_agg(jsonb_build_object('questionId',c.question_id,'normalized',c.normalized,
-      'label',c.label,'submitters',s.visitors,'days',s.days,'yes',coalesce(r.yes,0),'no',coalesce(r.no,0)))
-      from public.kr_candidates c join submissions s using(question_id,normalized)
-      left join reviews r using(question_id,normalized) where c.base_version=p_base),'[]')
+      'label',c.label,'submitters',s.visitors,'days',s.days,
+      'llmApproved',c.llm_approved,'llmReason',coalesce(c.llm_reason,'')))
+      from public.kr_candidates c
+      join submissions s using(question_id,normalized)
+      where c.base_version=p_base and (c.reviewed_at is null or c.reviewed_at > now() - interval '7 days')),'[]')
   );
 $$;
 

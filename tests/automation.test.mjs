@@ -4,11 +4,10 @@ import { BASE_BANK, validateBank } from "../src/bank.js";
 import { createGameEngine } from "../src/game.js";
 import { approvedCandidate, candidateName, knownAlias, recalibrate, wilsonLower } from "../backend/automation.js";
 
-const candidate = { questionId: "instruments", normalized: "鲁特琴", label: "鲁特琴", submitters: 5, days: 2, yes: 14, no: 1 };
-test("automatic additions need both independent submissions and strong cross-review evidence", () => {
+const candidate = { questionId: "instruments", normalized: "鲁特琴", label: "鲁特琴", submitters: 3, days: 2, llmApproved: true };
+test("automatic additions need LLM approval, enough submitters and day spread", () => {
   assert.ok(approvedCandidate(candidate));
-  for (const change of [{ submitters: 4 }, { days: 1 }, { yes: 12, no: 3 }, { yes: 5, no: 0 }]) assert.equal(approvedCandidate({ ...candidate, ...change }), false);
-  assert.ok(wilsonLower(14, 15) > 0.6);
+  for (const change of [{ llmApproved: false }, { submitters: 2 }, { days: 1 }]) assert.equal(approvedCandidate({ ...candidate, ...change }), false);
   for (const raw of ["<script>", "a@example.com", "13812345678", "钢琴、吉他", ""]) assert.equal(candidateName(raw), null);
   const result = recalibrate(BASE_BANK, [], [candidate], new Date("2026-09-20T00:00:00Z"));
   const answer = result.bank.questions.find(q => q.id === "instruments").answers.find(a => a.label === "鲁特琴");
@@ -16,18 +15,18 @@ test("automatic additions need both independent submissions and strong cross-rev
   assert.equal(recalibrate(result.bank, [], [candidate]).changes.length, 0);
   assert.ok(!BASE_BANK.questions.find(q => q.id === "instruments").answers.some(a => a.label === "鲁特琴"));
 });
-test("only a known grammatical wrapper can produce an automatic alias without votes", () => {
+test("a known grammatical wrapper can produce an automatic alias without LLM", () => {
   const question = BASE_BANK.questions.find(q => q.id === "instruments");
   assert.equal(knownAlias(question, "一架钢琴"), "钢琴");
   assert.equal(knownAlias(question, "钢琴吉他"), null);
   assert.equal(knownAlias(question, "钢亲"), null);
-  const { bank, changes } = recalibrate(BASE_BANK, [], [{ ...candidate, normalized: "一架钢琴", label: "一架钢琴", submitters: 3, yes: 0, no: 0 }]);
+  const { bank, changes } = recalibrate(BASE_BANK, [], [{ ...candidate, normalized: "一架钢琴", label: "一架钢琴", submitters: 3, llmApproved: false }]);
   assert.equal(changes[0].type, "alias");
   const engine = createGameEngine(bank);
   assert.deepEqual(engine.judge(question, "一架钢琴"), engine.judge(question, "钢琴"));
 });
-test("small samples keep scores stable; larger samples update gradually with one gem", () => {
-  const few = [{ questionId: "instruments", normalized: "特雷门琴", count: 49 }];
+test("low samples keep scores stable; enough samples update gradually with one gem", () => {
+  const few = [{ questionId: "instruments", normalized: "特雷门琴", count: 29 }];
   assert.equal(recalibrate(BASE_BANK, few, []).changes.length, 0);
   const { bank, changes } = recalibrate(BASE_BANK, [{ ...few[0], count: 100 }], []);
   assert.ok(changes.some(c => c.type === "tier"));

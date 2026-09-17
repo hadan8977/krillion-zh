@@ -1,14 +1,11 @@
 import { answerIndex, normalize } from "../src/answer-rules.js";
 
 export const POLICY = Object.freeze({
-  minimumSamples: 50,
+  minimumSamples: 30,
   priorSamples: 30,
-  minimumSubmitters: 5,
+  minimumSubmitters: 3,
   minimumDays: 2,
-  minimumReviews: 15,
-  minimumApproval: 0.85,
-  minimumWilson: 0.60,
-  maximumAdditionsPerQuestion: 3,
+  maximumAdditionsPerQuestion: 50,
 });
 const order = ["plankton", "schooler", "rare", "deepcut"];
 const weights = { plankton: 16, tooclever: 10, schooler: 4, rare: 1, deepcut: 0.25, krillion: 0.1 };
@@ -37,11 +34,9 @@ export function knownAlias(question, raw) {
 }
 
 export function approvedCandidate(candidate) {
-  const total = candidate.yes + candidate.no;
-  return Boolean(candidateName(candidate.label)) &&
-    candidate.submitters >= POLICY.minimumSubmitters && candidate.days >= POLICY.minimumDays &&
-    total >= POLICY.minimumReviews && candidate.yes / total >= POLICY.minimumApproval &&
-    wilsonLower(candidate.yes, total) >= POLICY.minimumWilson;
+  // llmApproved comes from the LLM-based review step in the refresh pipeline.
+  return Boolean(candidateName(candidate.label)) && candidate.llmApproved === true &&
+    candidate.submitters >= POLICY.minimumSubmitters && candidate.days >= POLICY.minimumDays;
 }
 
 export function recalibrate(current, observations, candidates, now = new Date()) {
@@ -49,7 +44,7 @@ export function recalibrate(current, observations, candidates, now = new Date())
   for (const question of bank.questions) {
     let index = answerIndex(question), additions = 0;
     const proposed = candidates.filter(candidate => candidate.questionId === question.id)
-      .sort((a, b) => b.yes - a.yes || b.submitters - a.submitters || a.normalized.localeCompare(b.normalized, "en"));
+      .sort((a, b) => b.submitters - a.submitters || b.days - a.days || a.normalized.localeCompare(b.normalized, "en"));
     for (const candidate of proposed) {
       if (!candidateName(candidate.label) || index.has(normalize(candidate.label))) continue;
       const target = knownAlias(question, candidate.label);
@@ -61,7 +56,7 @@ export function recalibrate(current, observations, candidates, now = new Date())
       } else if (approvedCandidate(candidate) && additions < POLICY.maximumAdditionsPerQuestion && question.answers.length < 1000) {
         question.answers.push({ label: candidate.label, aliases: [], tier: "schooler", addedAt: now.toISOString(), origin: "community" });
         additions++;
-        changes.push({ type: "answer", questionId: question.id, label: candidate.label, yes: candidate.yes, no: candidate.no, submitters: candidate.submitters });
+        changes.push({ type: "answer", questionId: question.id, label: candidate.label, submitters: candidate.submitters, days: candidate.days });
       } else continue;
       index = answerIndex(question);
     }
