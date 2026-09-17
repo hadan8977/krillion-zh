@@ -17,8 +17,8 @@ export async function reviewCandidate(question, label, acceptedAnswers = []) {
   const { key, base, model } = config();
   if (!key || !base || !question || !label) return null;
   const accepted = acceptedAnswers.slice(0, 30).join("、");
-  const system = "你是中文百科游戏的题目质量审核员。系统会给出一道题的提示词(prompt)和范围定义(scope)，以及一个玩家提交的候选答案。请严格依据该题范围判断候选答案是否**属于**该题要求的类型。只回复 JSON：{\"approved\":true|false,\"reason\":\"一句话\"}";
-  const user = `题目：${question.prompt}\n范围：${question.scope}\n\n已收录示例：${accepted || "(暂无)"}\n\n候选答案：${label}\n\n请严格依据范围判断该候选答案是否属于题目类别，只返回 JSON。`;
+  const system = "你是中文百科题库审核员。判断一个词是否属于题目所描述的类别，只看它本身是否符合题意，不需要判断它是否已被收录。(1) 若候选答案的对象本身属于题目类别，approve 为 true；(2) 若不属于，approve 为 false。只输出 JSON：{\"approved\":true|false,\"reason\":\"一句话\"}";
+  const user = `题目：${question.prompt}\n范围：${question.scope}\n\n参考：属于该类别的一些已有词包括：${accepted || "(暂无)"}\n\n请判断候选答案「${label}」是否属于题目类别，只返回 JSON。`;
   let lastError = null;
   for (const attempt of [0, 1, 2]) {
     try {
